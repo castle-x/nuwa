@@ -9,7 +9,7 @@
 参考图路径相对于当前工作目录（一般是项目根目录）。
 
 任务 JSON 字段见 --示例 输出。参考图会被压缩内嵌，不依赖任何外部文件。
-确认后的回执由页面下载，落在系统「下载」目录，文件名 回执-<jobId>.json。
+用户在对话里明确确认即可，不下载回执；页面上的按钮负责复制全文、提示词、参考图和确认语。
 """
 import argparse
 import base64
@@ -92,6 +92,29 @@ def embed_image(path):
     return "data:image/jpeg;base64," + encoded, (width, height)
 
 
+FULL_RAW_LIMIT = 6 * 1024 * 1024  # 原图不超过 6MB 时原样内嵌，供「复制图片」用
+FULL_JPEG_QUALITY = 92
+
+
+def embed_full_image(path):
+    """内嵌一份原尺寸图，供确认单上一键复制。小图原样内嵌；大图按原尺寸重编码为高质量 JPEG。"""
+    from PIL import Image
+    source = pathlib.Path(path)
+    mime = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}.get(source.suffix.lower())
+    if mime and source.stat().st_size <= FULL_RAW_LIMIT:
+        return "data:{};base64,{}".format(mime, base64.b64encode(source.read_bytes()).decode("ascii")), "原图"
+    with Image.open(source) as image:
+        image.load()
+        if image.mode not in ("RGB", "L"):
+            background = Image.new("RGB", image.size, (255, 255, 255))
+            rgba = image.convert("RGBA")
+            background.paste(rgba, mask=rgba.split()[-1])
+            image = background
+        buffer = io.BytesIO()
+        image.convert("RGB").save(buffer, format="JPEG", quality=FULL_JPEG_QUALITY, optimize=True)
+    return "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode("ascii"), "原尺寸重编码"
+
+
 def render_params(job, prompt_hash):
     rows = [
         ("通道", job.get("通道", "")),
@@ -120,22 +143,31 @@ def render_refs(job):
         absolute = pathlib.Path(relative) if pathlib.Path(relative).is_absolute() else ROOT / relative
         data_uri, size = embed_image(absolute)
         name = absolute.name
+        full_uri, full_kind = embed_full_image(absolute)
+        role = str(item.get("职责", "未标注"))
+        source_text = str(item.get("来源", "未标注"))
+        size_text = "{}×{}".format(size[0], size[1])
         cards.append(
-            '<div class="ref">'
-            '<img src="{uri}" alt="{alt}">'
+            '<div class="ref" data-idx="{idx}" data-name="{name}" data-size="{size}" data-role="{role}" data-source="{source}">'
+            '<div class="shot"><img src="{uri}" alt="{alt}"></div>'
+            '<script type="text/plain" class="full">{full}</script>'
             '<div class="meta">'
             '<div class="role">{idx}. {role}</div>'
-            '<div class="name">{name}<br>{w}×{h}</div>'
+            '<div class="name">{name}<br>{size}</div>'
             '<div class="name">来源：{source}</div>'
+            '<button type="button" class="mini copy-img" data-copy="image" data-label="复制图片" title="复制{kind}（{size}）">'
+            '<svg class="i-copy" aria-hidden="true"><use href="#i-copy"/></svg>'
+            '<svg class="i-done" aria-hidden="true"><use href="#i-done"/></svg><span>复制图片</span></button>'
             "</div></div>".format(
                 uri=data_uri,
+                full=full_uri,
+                kind=full_kind,
                 alt=html.escape(name),
                 idx=index,
-                role=html.escape(str(item.get("职责", "未标注"))),
+                role=html.escape(role),
                 name=html.escape(name),
-                w=size[0],
-                h=size[1],
-                source=html.escape(str(item.get("来源", "未标注"))),
+                size=size_text,
+                source=html.escape(source_text),
             )
         )
     if not cards:
@@ -232,7 +264,7 @@ def main():
     print("确认单已生成：" + str(target))
     print("JOB " + job_id + " · 参考图 {} 张 · {:.0f} KB".format(len(job.get("参考图", [])), size_kb))
     print("提示词指纹 " + prompt_hash)
-    print("确认后回执会下载为 回执-" + job_id + ".json，出图前会核对 jobId 与提示词指纹。")
+    print("用户在对话里明确确认即可；出图前核对确认单上的 jobId、提示词指纹与参数。")
 
     if args.open_result:
         opener = "open" if sys.platform == "darwin" else ("start" if sys.platform == "win32" else "xdg-open")
