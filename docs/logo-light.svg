@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="120" viewBox="0 0 400 120" role="img" aria-label="Nuwa">
+  <title>Nuwa</title>
+  <path d="M22 96 C22 62 40 40 62 40 C84 40 102 62 102 96 Z" fill="#2C7A69"/>
+  <path d="M62 14 C71 22 71 30 62 38" fill="none" stroke="#C0682F" stroke-width="5" stroke-linecap="butt"/>
+  <path d="M44 20 C51 26 51 32 46 38" fill="none" stroke="#C0682F" stroke-width="4" stroke-linecap="butt" opacity=".65"/>
+  <rect x="16" y="96" width="92" height="7" rx="3.5" fill="#18211E"/>
+  <text x="128" y="78" font-family="Georgia, 'Times New Roman', serif" font-size="58" font-weight="700" fill="#18211E" letter-spacing="1">Nuwa</text>
+  <text x="130" y="104" font-family="'PingFang SC','Noto Sans SC','Microsoft YaHei',sans-serif" font-size="16" fill="#5B6662" letter-spacing="6">女娲造人 · AI 模特全流程</text>
+</svg>

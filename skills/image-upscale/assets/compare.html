@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=Noto+Sans+SC:wght@400;500;600&display=swap">
+<style>
+  /* 布局：一屏工作台。上方一行标题和缩放，下方是按图片比例的对比舞台 */
+  :root {
+    --bg: #eceef1;
+    --surface: #ffffff;
+    --stage: #8f9198;
+    --fg: #1f2228;
+    --muted: #5b606b;
+    --line: #d5d8de;
+    --accent: #c4566a;
+    --on-accent: #ffffff;
+    --chip-bg: rgba(20, 22, 27, 0.62);
+    --chip-fg: #ffffff;
+    --font-body: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    --ease: cubic-bezier(0.22, 0.8, 0.24, 1);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #15171b; --surface: #1f2228; --stage: #2b2e34; --fg: #e9ebef; --muted: #a2a7b2;
+      --line: #343840; --accent: #e57f92; --on-accent: #1a0d10; --chip-bg: rgba(10, 11, 14, 0.7); --chip-fg: #f2f3f5;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #15171b; --surface: #1f2228; --stage: #2b2e34; --fg: #e9ebef; --muted: #a2a7b2;
+    --line: #343840; --accent: #e57f92; --on-accent: #1a0d10; --chip-bg: rgba(10, 11, 14, 0.7); --chip-fg: #f2f3f5;
+    color-scheme: dark;
+  }
+
+  html, body { height: 100%; }
+  body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-body);
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 16px;
+    box-sizing: border-box;
+  }
+  .app { max-width: 1440px; margin-inline: auto; display: grid; gap: 12px; }
+
+  .bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+  .bar h1 { margin: 0; font-size: 1.05rem; font-weight: 600; text-wrap: balance; }
+  .bar .method { color: var(--muted); font-size: 0.85rem; }
+  .bar .titles { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; min-width: 0; }
+
+  .zoom { display: flex; align-items: center; gap: 10px; }
+  .seg {
+    display: inline-flex; padding: 3px; gap: 2px; border-radius: 999px;
+    background: var(--surface); border: 1px solid var(--line);
+  }
+  .seg button {
+    font: 500 0.82rem/1 var(--font-body); color: var(--muted);
+    background: transparent; border: 0; border-radius: 999px;
+    height: 28px; padding: 0 12px; cursor: pointer;
+    transition: background-color 200ms var(--ease), color 200ms var(--ease);
+  }
+  .seg button:hover { color: var(--fg); }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+  .seg button:focus-visible, .handle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .readout { font: 500 0.8rem var(--font-mono); color: var(--muted); min-width: 3.5em; text-align: left; font-variant-numeric: tabular-nums; }
+
+  .viewport {
+    position: relative; overflow: hidden; touch-action: none; user-select: none;
+    width: min(100%, calc((100dvh - 110px) * {{BW}} / {{BH}}));
+    max-width: 100%;
+    aspect-ratio: {{BW}} / {{BH}};
+    margin-inline: auto;
+    border-radius: 10px;
+    background: var(--stage);
+    cursor: ew-resize;
+    --pos: 50%;
+  }
+  .viewport.zoomed { cursor: grab; }
+  .viewport.panning { cursor: grabbing; }
+  .layer { position: absolute; inset: 0; }
+  .layer.after { clip-path: inset(0 0 0 var(--pos)); }
+  .stage {
+    position: absolute; inset: 0; transform-origin: 0 0; will-change: transform;
+  }
+  .stage.animate { transition: transform 320ms var(--ease); }
+  .stage img { width: 100%; height: 100%; display: block; max-width: none; pointer-events: none; }
+
+  .divider {
+    position: absolute; top: 0; bottom: 0; left: var(--pos); width: 0;
+    pointer-events: none;
+  }
+  .divider::before {
+    content: ""; position: absolute; top: 0; bottom: 0; left: -1px; width: 2px;
+    background: var(--chip-fg); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.18);
+  }
+  .handle {
+    position: absolute; top: 50%; left: 0; translate: -50% -50%;
+    width: 40px; height: 40px; border-radius: 50%; padding: 0;
+    border: 2px solid var(--chip-fg); background: var(--chip-bg); color: var(--chip-fg);
+    display: grid; place-items: center; cursor: ew-resize; pointer-events: auto;
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    transition: scale 200ms var(--ease);
+  }
+  .handle:hover, .viewport.dragging .handle { scale: 1.08; }
+  .handle svg { width: 20px; height: 20px; }
+  .grip { position: absolute; top: 0; bottom: 0; left: -14px; width: 28px; pointer-events: auto; cursor: ew-resize; }
+
+  .chip {
+    position: absolute; top: 12px; padding: 6px 10px; border-radius: 999px;
+    background: var(--chip-bg); color: var(--chip-fg);
+    font-size: 0.78rem; display: flex; gap: 8px; align-items: baseline;
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    transition: opacity 200ms var(--ease);
+    pointer-events: none;
+  }
+  .chip b { font-weight: 600; }
+  .chip span { font: 500 0.74rem var(--font-mono); opacity: 0.85; font-variant-numeric: tabular-nums; }
+  .chip.before { left: 12px; }
+  .chip.after { right: 12px; }
+  .chip.hide { opacity: 0; }
+
+  @media (max-width: 560px) {
+    .chip span { display: none; }
+    .handle { width: 34px; height: 34px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .stage.animate, .seg button, .chip, .handle { transition: none; }
+  }
+</style>
+
+<div class="app">
+  <div class="bar">
+    <div class="titles">
+      <h1>{{TITLE}}</h1>
+      <span class="method">{{METHOD}}</span>
+    </div>
+    <div class="zoom">
+      <div class="seg" role="group" aria-label="缩放">
+        <button type="button" id="z-fit" data-zoom="fit" aria-pressed="true">适应</button>
+        <button type="button" id="z-100" data-zoom="1">100%</button>
+        <button type="button" id="z-200" data-zoom="2">200%</button>
+      </div>
+      <span class="readout" id="readout" aria-live="polite">63%</span>
+    </div>
+  </div>
+
+  <div class="viewport" id="vp">
+    <div class="layer before"><div class="stage"><img src="before.webp" alt="处理前原图" width="{{BW}}" height="{{BH}}" draggable="false"></div></div>
+    <div class="layer after"><div class="stage"><img src="after.webp" alt="超分处理后" width="{{AW}}" height="{{AH}}" draggable="false"></div></div>
+    <div class="chip before" id="chip-before"><b>处理前</b><span>{{BW}}×{{BH}}</span></div>
+    <div class="chip after" id="chip-after"><b>处理后</b><span>{{AW}}×{{AH}}</span></div>
+    <div class="divider">
+      <div class="grip" id="grip"></div>
+      <button type="button" class="handle" id="handle" role="slider" aria-label="对比分界线"
+              aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" aria-valuetext="50%">
+        <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M7.5 5 2.5 10l5 5M12.5 5l5 5-5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const AFTER_W = {{AW}};
+  const vp = document.getElementById('vp');
+  const stages = vp.querySelectorAll('.stage');
+  const handle = document.getElementById('handle');
+  const grip = document.getElementById('grip');
+  const readout = document.getElementById('readout');
+  const chipBefore = document.getElementById('chip-before');
+  const chipAfter = document.getElementById('chip-after');
+  const zoomButtons = document.querySelectorAll('.seg button');
+
+  let pos = 50;              // 分界线位置，占视口宽度的百分比
+  let s = 1, tx = 0, ty = 0; // 相对“适应”的缩放倍数与平移
+
+  const size = () => vp.getBoundingClientRect();
+  const fitPixelRatio = () => size().width / AFTER_W;     // 适应时 1 个处理后像素占多少 CSS 像素
+  const maxScale = () => Math.max(1, 4 / fitPixelRatio()); // 最大 400%
+
+  function setPos(p) {
+    pos = Math.min(100, Math.max(0, p));
+    vp.style.setProperty('--pos', pos + '%');
+    const v = Math.round(pos);
+    handle.setAttribute('aria-valuenow', v);
+    handle.setAttribute('aria-valuetext', v + '%');
+    chipBefore.classList.toggle('hide', pos < 18);
+    chipAfter.classList.toggle('hide', pos > 82);
+  }
+
+  function clampPan() {
+    const { width, height } = size();
+    tx = Math.min(0, Math.max(width - width * s, tx));
+    ty = Math.min(0, Math.max(height - height * s, ty));
+  }
+
+  function render(animate) {
+    clampPan();
+    stages.forEach(st => {
+      st.classList.toggle('animate', !!animate);
+      st.style.transform = `translate(${tx}px, ${ty}px) scale(${s})`;
+    });
+    vp.classList.toggle('zoomed', s > 1.001);
+    const pct = Math.round(s * fitPixelRatio() * 100);
+    readout.textContent = pct + '%';
+    const preset = s <= 1.001 ? 'fit' : [1, 2].find(z => Math.abs(z / fitPixelRatio() - s) < 0.01);
+    zoomButtons.forEach(b => b.setAttribute('aria-pressed', String(b.dataset.zoom === String(preset))));
+  }
+
+  // 以视口内某点为中心缩放到 s2
+  function zoomAt(s2, px, py, animate) {
+    s2 = Math.min(maxScale(), Math.max(1, s2));
+    tx = px - (px - tx) * (s2 / s);
+    ty = py - (py - ty) * (s2 / s);
+    s = s2;
+    render(animate);
+  }
+
+  zoomButtons.forEach(b => b.addEventListener('click', () => {
+    const { width, height } = size();
+    const target = b.dataset.zoom === 'fit' ? 1 : Number(b.dataset.zoom) / fitPixelRatio();
+    // 以分界线与画面中线的交点为中心，放大后正好看分界两侧
+    zoomAt(target, width * pos / 100, height / 2, true);
+  }));
+
+  vp.addEventListener('wheel', e => {
+    e.preventDefault();
+    const r = size();
+    const k = Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0025));
+    zoomAt(s * k, e.clientX - r.left, e.clientY - r.top, false);
+  }, { passive: false });
+
+  vp.addEventListener('dblclick', e => {
+    const r = size();
+    const target = s > 1.001 ? 1 : 1 / fitPixelRatio();
+    zoomAt(target, e.clientX - r.left, e.clientY - r.top, true);
+  });
+
+  // 拖动：按在分界线上始终移动分界线；其余位置在放大时平移，未放大时移动分界线
+  let mode = null, startX = 0, startY = 0, startTx = 0, startTy = 0;
+  function posFromEvent(e) {
+    const r = size();
+    return (e.clientX - r.left) / r.width * 100;
+  }
+  vp.addEventListener('pointerdown', e => {
+    if (e.button !== 0) return;
+    const onLine = e.target === handle || handle.contains(e.target) || e.target === grip;
+    mode = onLine || s <= 1.001 ? 'divider' : 'pan';
+    vp.setPointerCapture(e.pointerId);
+    if (mode === 'divider') {
+      vp.classList.add('dragging');
+      if (!onLine) setPos(posFromEvent(e));
+      if (onLine) handle.focus({ preventScroll: true });
+    } else {
+      vp.classList.add('panning');
+      startX = e.clientX; startY = e.clientY; startTx = tx; startTy = ty;
+    }
+  });
+  vp.addEventListener('pointermove', e => {
+    if (mode === 'divider') setPos(posFromEvent(e));
+    else if (mode === 'pan') {
+      tx = startTx + e.clientX - startX;
+      ty = startTy + e.clientY - startY;
+      render(false);
+    }
+  });
+  const end = () => { mode = null; vp.classList.remove('dragging', 'panning'); };
+  vp.addEventListener('pointerup', end);
+  vp.addEventListener('pointercancel', end);
+
+  handle.addEventListener('keydown', e => {
+    const step = e.shiftKey ? 10 : 1;
+    const map = { ArrowLeft: pos - step, ArrowRight: pos + step, Home: 0, End: 100 };
+    if (e.key in map) { e.preventDefault(); setPos(map[e.key]); }
+  });
+
+  // 视口尺寸变化时保持当前看到的相对位置
+  let lastW = size().width;
+  new ResizeObserver(() => {
+    const w = size().width;
+    if (w && lastW) { tx *= w / lastW; ty *= w / lastW; }
+    lastW = w;
+    render(false);
+  }).observe(vp);
+
+  setPos(50);
+  render(false);
+})();
+</script>

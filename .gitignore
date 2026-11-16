@@ -1,0 +1,7 @@
+.DS_Store
+__pycache__/
+*.pyc
+.env
+
+# 维护用的实测记录，只留本地，不进公开仓库
+research/

@@ -1,0 +1,23 @@
+name: 补充经验或新功能
+description: 新的模型实测结论、更好的提示词写法、新的内容形式
+labels: [enhancement]
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: 类型
+      options: [模型实测结论, 提示词写法, 问题和修法, 新的内容形式, 其他]
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: 在哪个模型上验证过
+      description: 提示词不通用，请写清模型和通道
+  - type: textarea
+    id: detail
+    attributes:
+      label: 内容
+      description: 做了什么、对比了什么、结果如何。能附对照图更好
+    validations:
+      required: true
