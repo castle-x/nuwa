@@ -229,7 +229,7 @@ function toast(text, isError){
   el.classList.toggle('err', !!isError);
   el.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), isError ? 3600 : 1800);
+  toastTimer = setTimeout(() => el.classList.remove('show'), isError ? 5000 : 1800);
 }
 function flash(btn, ok, text){
   const label = btn.querySelector('span');
@@ -312,22 +312,35 @@ async function toPngBlob(src){
   return new Promise((resolve, reject) =>
     canvas.toBlob(b => b ? resolve(b) : reject(new Error('转 PNG 失败')), 'image/png'));
 }
-async function copyImage(card){
+function fullSrc(card){
   const full = card.querySelector('script.full');
-  const src = full ? full.textContent.trim() : card.querySelector('img').src;
-  if (navigator.clipboard && window.ClipboardItem && window.isSecureContext) {
-    try {
-      /* Safari 要求在点击当下就创建 ClipboardItem，所以把 Promise 交给它 */
-      await navigator.clipboard.write([new ClipboardItem({'image/png': toPngBlob(src)})]);
-      return true;
-    } catch (e) { /* 退回旧接口 */ }
+  return full ? full.textContent.trim() : card.querySelector('img').src;
+}
+/* 图片只能走 Clipboard API。旧的「选中图片再 execCommand」只会复制一段 HTML，粘贴不出图片，所以不用它冒充成功 */
+async function copyImage(card){
+  if (!(navigator.clipboard && window.ClipboardItem && window.isSecureContext)) return false;
+  try {
+    /* Safari 要求在点击当下就创建 ClipboardItem，所以把 Promise 交给它 */
+    await navigator.clipboard.write([new ClipboardItem({'image/png': toPngBlob(fullSrc(card))})]);
+    return true;
+  } catch (e) {
+    return false;
   }
-  const img = await loadImage(src);
-  img.style.cssText = 'position:fixed;left:-99999px;top:0';
-  document.body.appendChild(img);
-  const ok = legacyCopyNode(img);
-  img.remove();
-  return ok;
+}
+/* 复制不了时下载原图兜底 */
+async function downloadImage(card){
+  const src = fullSrc(card);
+  const blob = await (await fetch(src)).blob();
+  const ext = ({'image/png':'png','image/jpeg':'jpg','image/webp':'webp'})[blob.type] || 'png';
+  const base = (card.dataset.name || ('参考图' + card.dataset.idx)).replace(/\.[^.]+$/, '');
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = base + '.' + ext;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 /* ---------- 组装全文 ---------- */
@@ -405,7 +418,9 @@ document.addEventListener('click', async ev => {
     } else if (kind === 'image') {
       const card = btn.closest('.ref');
       ok = await copyImage(card);
-      okMsg = '参考图 ' + card.dataset.idx + ' 已复制（' + card.dataset.size + '）'; errMsg = '图片复制失败：浏览器不允许写入图片';
+      okMsg = '参考图 ' + card.dataset.idx + ' 已复制（' + card.dataset.size + '）';
+      errMsg = '这个窗口不允许复制图片，已改为下载原图；用 Chrome 打开确认单即可一键复制';
+      if (!ok) { try { await downloadImage(card); } catch (e) { errMsg = '这个窗口不允许复制图片，请用 Chrome 打开确认单'; } }
     }
   } catch (e) { ok = false; }
   flash(btn, ok, ok ? '已复制' : '复制失败');
