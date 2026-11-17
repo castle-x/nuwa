@@ -1,10 +1,11 @@
 """身材锁定图工具：局部抠头出无头版，计算头身比、腰线和腿长比例。
 
-  python3 body_tools.py dehead 锁定图.png --head 242,36,385,232 -o 锁定图-无头.png
+  python3 body_tools.py dehead 锁定图.png --head 291,26,441,230 --mosaic 925,45,1075,240 -o 锁定图-无头.png
   python3 body_tools.py ratio --top 120 --chin 245 --waist 520 --crotch 600 --feet 1100
 
-去头一律用 dehead（用户 2026-11-17 定的规范）：只在露脸的格子里用椭圆遮罩盖住头部，
-按行用头部左右两侧的背景插值补齐，脖子从下巴以下保留，画布尺寸和其余格子不动。
+去头一律用 dehead（用户 2026-11-17 定的规范）：正面格用椭圆遮罩盖住头部，按行用头部左右两侧的背景
+插值补齐（--head）；侧面格不抠头，只给脸打码（--mosaic），保住头的大小和轮廓，头身比不崩。
+脖子从下巴以下保留，画布尺寸和其余格子不动。背面格不处理。
 crop（整行横裁）只为旧记录保留，不再用于锁定图。
   python3 body_tools.py ratio --top 120 --chin 245 --waist 520 --crotch 600 --feet 1100
 """
@@ -37,7 +38,7 @@ def dehead(args):
     px, bp = im.load(), bg.load()
     mask = Image.new("L", (W, H), 0)
     draw = ImageDraw.Draw(mask)
-    for spec in args.head:
+    for spec in args.head or []:
         try:
             l, t, r, chin = (int(v) for v in spec.split(","))
         except ValueError:
@@ -58,9 +59,19 @@ def dehead(args):
                 f = (x - xl) / max(1, xr - xl)
                 bp[x, y] = tuple(int(left[i] * (1 - f) + right[i] * f) for i in range(3))
     soft = mask.filter(ImageFilter.GaussianBlur(args.feather))
+    result = Image.composite(bg, im, soft)
+    # 侧脸打码：只把五官区域马赛克，头的轮廓和大小保留，头身比不变
+    for spec in args.mosaic or []:
+        try:
+            l, t, r, b = (int(v) for v in spec.split(","))
+        except ValueError:
+            sys.exit(f"--mosaic 要写成 左,上,右,下 四个像素值，收到 {spec}")
+        region = result.crop((l, t, r, b))
+        small = region.resize((max(1, (r - l) // args.block), max(1, (b - t) // args.block)), Image.BILINEAR)
+        result.paste(small.resize(region.size, Image.NEAREST), (l, t))
     out = Path(args.out) if args.out else Path(args.image).with_name(Path(args.image).stem + "-无头.png")
-    Image.composite(bg, im, soft).save(out)
-    print(f"已抠头 {out}，{W}×{H}（尺寸不变），处理 {len(args.head)} 个头部")
+    result.save(out)
+    print(f"已处理 {out}，{W}×{H}（尺寸不变），抠头 {len(args.head or [])} 个，打码 {len(args.mosaic or [])} 处")
 
 
 def ratio(args):
@@ -80,7 +91,9 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     h = sub.add_parser("dehead", help="局部抠头：椭圆遮罩盖住头部、背景按行补齐，画布不变（默认用这个）")
     h.add_argument("image")
-    h.add_argument("--head", action="append", required=True, help="左,头顶,右,下巴 的像素坐标，左右含耳朵；多个露脸格子就写多次")
+    h.add_argument("--head", action="append", help="正面格要抠掉的头：左,头顶,右,下巴 的像素坐标，左右含耳朵；可写多次")
+    h.add_argument("--mosaic", action="append", help="侧面格要打码的脸：左,上,右,下 的像素坐标，盖住额头到下巴、鼻尖到耳前，头发和发髻留着；可写多次")
+    h.add_argument("--block", type=int, default=14, help="马赛克方块边长，默认 14 像素")
     h.add_argument("--pad", type=int, default=10, help="遮罩向外扩的像素，默认 10")
     h.add_argument("--feather", type=float, default=4, help="遮罩边缘羽化半径，默认 4")
     h.add_argument("-o", "--out")
@@ -95,6 +108,8 @@ def main():
         r.add_argument(f"--{name}", type=int, required=need)
     r.set_defaults(func=ratio)
     args = ap.parse_args()
+    if args.cmd == "dehead" and not (args.head or args.mosaic):
+        ap.error("dehead 至少要给一个 --head 或 --mosaic")
     args.func(args)
 
 
