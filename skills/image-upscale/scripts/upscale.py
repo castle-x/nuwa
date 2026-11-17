@@ -1,7 +1,7 @@
 """保真超分命令行。用任意 python3 运行，会自动切换到安装好的环境。
 
   python3 upscale.py 图片或目录 -o 输出目录 --target 3840 --check --compare
-  python3 upscale.py 图片 -m hat --blend 0 --target 7680
+  python3 upscale.py 图片 -m dat2 --target 7680   # 换 DAT2（默认混合 0.2）
 """
 import argparse
 import os
@@ -59,13 +59,13 @@ def write_compare(dst_dir, src, sr, title, method):
 def main():
     ap = argparse.ArgumentParser(description="非生成式超分：放大但不重绘，脸和细节保持一致")
     ap.add_argument("inputs", nargs="+", help="图片文件或目录")
-    ap.add_argument("-m", "--model", default="dat2",
+    ap.add_argument("-m", "--model", default="hat",
                     help="模型别名 " + "；".join(f"{k}={v}" for k, v in config.DESCRIPTIONS.items())
                     + "。也可以给 .pth / .safetensors 路径")
     ap.add_argument("-o", "--out", default="upscaled", help="输出目录")
     ap.add_argument("--target", type=int, help="输出长边像素，如 3840(4K) / 7680(8K)；默认按模型倍率放大 4 倍")
-    ap.add_argument("--blend", type=float, default=0.2,
-                    help="与 Lanczos 混合比例 0~1，压掉模型造出的假纹理。默认 0.2；HAT 建议 0")
+    ap.add_argument("--blend", type=float, default=None,
+                    help="与 Lanczos 混合比例 0~1，压掉模型造出的假纹理。默认 HAT 为 0，其他模型为 0.2")
     ap.add_argument("--tile", type=int, help="分块边长，越小越省显存/内存；默认按设备自动选")
     ap.add_argument("--throttle", type=float, default=0.0, help="每块算完休息“耗时×该值”，1.0 约让 GPU 空闲一半")
     ap.add_argument("--threads", type=int, help="限制 CPU 线程数")
@@ -75,6 +75,8 @@ def main():
     ap.add_argument("--check", action="store_true", help="输出回投影一致性 PSNR 和差异热图")
     ap.add_argument("--compare", action="store_true", help="为每张图生成拖动对比网页")
     args = ap.parse_args()
+    if args.blend is None:
+        args.blend = 0.0 if str(args.model).lower() == "hat" else 0.2
 
     import torch
     tile = args.tile or sr_core.auto_tile()

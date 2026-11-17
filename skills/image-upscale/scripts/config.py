@@ -19,8 +19,8 @@ MODEL_FILES = {
 }
 
 DESCRIPTIONS = {
-    "dat2": "DAT2-real，网图、JPEG、AIGC 通用，保真和观感的平衡点（默认）",
-    "hat": "HAT，干净无压缩的输入最保真，偏柔",
+    "dat2": "DAT2-real，压缩重的网图、截图用；会抹淡雀斑和毛孔",
+    "hat": "HAT，最保真，保住皮肤纹理（默认，blend 0）",
     "plksr": "RealPLKSR，最快，适合批量预览",
 }
 
