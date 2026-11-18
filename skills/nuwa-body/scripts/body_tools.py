@@ -5,6 +5,7 @@
 
 去头一律用 dehead（用户 2026-11-17 定的规范）：正面格用椭圆遮罩盖住头部，按行用头部左右两侧的背景
 插值补齐（--head）；侧面格不抠头，只给脸打码（--mosaic），保住头的大小和轮廓，头身比不崩。
+打码一律柔和揉开，不用硬方块（用户 2026-11-17 定）；胸前透出的凸点用 --dot 同样柔和打码。
 脖子从下巴以下保留，画布尺寸和其余格子不动。背面格不处理。
 crop（整行横裁）只为旧记录保留，不再用于锁定图。
   python3 body_tools.py ratio --top 120 --chin 245 --waist 520 --crotch 600 --feet 1100
@@ -25,6 +26,23 @@ def crop(args):
     out = Path(args.out) if args.out else Path(args.image).with_name(Path(args.image).stem + "-无头.png")
     img.crop((0, args.y, img.width, img.height)).save(out)
     print(f"已裁出 {out}，{img.width}×{img.height - args.y}，裁掉上方 {args.y} 像素")
+
+
+def soft_patch(img, box, ellipse, block):
+    """在 box 区域内，把 ellipse（相对 box 的坐标）里的内容揉开：粗像素化、平滑放大、模糊，边缘羽化。"""
+    from PIL import Image, ImageDraw, ImageFilter
+    reg = img.crop(box)
+    blk = max(4, block)
+    small = reg.resize((max(1, reg.width // blk), max(1, reg.height // blk)), Image.BILINEAR)
+    smooth = small.resize(reg.size, Image.BILINEAR).filter(ImageFilter.GaussianBlur(blk / 2))
+    mask = Image.new("L", reg.size, 0)
+    ImageDraw.Draw(mask).ellipse(ellipse, fill=255)
+    ew = ellipse[2] - ellipse[0]
+    mask = mask.filter(ImageFilter.GaussianBlur(max(1, ew / 8)))
+    reg.paste(smooth, (0, 0), mask)
+    out = img.copy()
+    out.paste(reg, box[:2])
+    return out
 
 
 def dehead(args):
@@ -60,18 +78,34 @@ def dehead(args):
                 bp[x, y] = tuple(int(left[i] * (1 - f) + right[i] * f) for i in range(3))
     soft = mask.filter(ImageFilter.GaussianBlur(args.feather))
     result = Image.composite(bg, im, soft)
-    # 侧脸打码：只把五官区域马赛克，头的轮廓和大小保留，头身比不变
+    # 侧脸打码：只把五官区域揉掉，头的轮廓和大小保留，头身比不变。
+    # 默认柔和打码（用户 2026-11-17 定）：粗像素化后双线性放大再高斯模糊，椭圆遮罩羽化边缘，
+    # 看上去像失焦揉开，不留硬方块；硬方块会让下游模型学到马赛克纹理。--hard 才用旧的方块马赛克。
     for spec in args.mosaic or []:
         try:
             l, t, r, b = (int(v) for v in spec.split(","))
         except ValueError:
             sys.exit(f"--mosaic 要写成 左,上,右,下 四个像素值，收到 {spec}")
-        region = result.crop((l, t, r, b))
-        small = region.resize((max(1, (r - l) // args.block), max(1, (b - t) // args.block)), Image.BILINEAR)
-        result.paste(small.resize(region.size, Image.NEAREST), (l, t))
+        if args.hard:
+            region = result.crop((l, t, r, b))
+            small = region.resize((max(1, (r - l) // args.block), max(1, (b - t) // args.block)), Image.BILINEAR)
+            result.paste(small.resize(region.size, Image.NEAREST), (l, t))
+            continue
+        m = max(r - l, b - t) // 4
+        box = (max(0, l - m), max(0, t - m), min(W, r + m), min(H, b + m))
+        result = soft_patch(result, box, (l - box[0], t - box[1], r - box[0], b - box[1]), args.block)
+    # 敏感点打码（胸前透出的凸点等）：同样的柔和方式，圆形
+    for spec in args.dot or []:
+        try:
+            x, y, rad = (int(v) for v in spec.split(","))
+        except ValueError:
+            sys.exit(f"--dot 要写成 x,y,半径 三个像素值，收到 {spec}")
+        box = (max(0, x - 2 * rad), max(0, y - 2 * rad), min(W, x + 2 * rad), min(H, y + 2 * rad))
+        e = (x - rad - box[0], y - rad - box[1], x + rad - box[0], y + rad - box[1])
+        result = soft_patch(result, box, e, max(4, rad // 2))
     out = Path(args.out) if args.out else Path(args.image).with_name(Path(args.image).stem + "-无头.png")
     result.save(out)
-    print(f"已处理 {out}，{W}×{H}（尺寸不变），抠头 {len(args.head or [])} 个，打码 {len(args.mosaic or [])} 处")
+    print(f"已处理 {out}，{W}×{H}（尺寸不变），抠头 {len(args.head or [])} 个，打码 {len(args.mosaic or [])} 处，敏感点 {len(args.dot or [])} 处")
 
 
 def ratio(args):
@@ -93,7 +127,9 @@ def main():
     h.add_argument("image")
     h.add_argument("--head", action="append", help="正面格要抠掉的头：左,头顶,右,下巴 的像素坐标，左右含耳朵；可写多次")
     h.add_argument("--mosaic", action="append", help="侧面格要打码的脸：左,上,右,下 的像素坐标，盖住额头到下巴、鼻尖到耳前，头发和发髻留着；可写多次")
-    h.add_argument("--block", type=int, default=14, help="马赛克方块边长，默认 14 像素")
+    h.add_argument("--dot", action="append", help="敏感点柔和打码（例如胸前透出的凸点）：x,y,半径；全身格半径约 11～14，特写格约 24；可写多次")
+    h.add_argument("--block", type=int, default=14, help="打码的像素化粒度，默认 14 像素；柔和模式下越大越糊")
+    h.add_argument("--hard", action="store_true", help="侧脸改用旧的硬方块马赛克（不推荐）")
     h.add_argument("--pad", type=int, default=10, help="遮罩向外扩的像素，默认 10")
     h.add_argument("--feather", type=float, default=4, help="遮罩边缘羽化半径，默认 4")
     h.add_argument("-o", "--out")
@@ -108,8 +144,8 @@ def main():
         r.add_argument(f"--{name}", type=int, required=need)
     r.set_defaults(func=ratio)
     args = ap.parse_args()
-    if args.cmd == "dehead" and not (args.head or args.mosaic):
-        ap.error("dehead 至少要给一个 --head 或 --mosaic")
+    if args.cmd == "dehead" and not (args.head or args.mosaic or args.dot):
+        ap.error("dehead 至少要给一个 --head、--mosaic 或 --dot")
     args.func(args)
 
 
